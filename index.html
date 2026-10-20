@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Solo">
+<title>Solo Scorekeeper</title>
+<style>
+:root{--bg:#0b1320;--card:#141f33;--line:#22324d;--tx:#e8eef7;--mu:#8da0bd;--ac:#10b981;--bad:#f87171;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 "Avenir Next",system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{max-width:520px;margin:0 auto;padding:12px 12px 90px}
+nav{display:flex;gap:6px;margin-bottom:12px;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding:6px 0;z-index:5}
+nav button{flex:1;padding:10px 4px;border:1px solid var(--line);background:var(--card);color:var(--mu);border-radius:10px;font:inherit;font-size:13px}
+nav button.on{background:var(--ac);color:#04231a;border-color:var(--ac);font-weight:700}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+h2{margin:0 0 10px;font-size:18px}h3{margin:0 0 8px;font-size:15px;color:var(--mu);font-weight:600}
+.btn{display:block;width:100%;padding:14px;border:0;border-radius:12px;background:var(--ac);color:#04231a;font:inherit;font-weight:700;font-size:17px}
+.btn.alt{background:var(--line);color:var(--tx)}.btn.sm{display:inline-block;width:auto;padding:6px 10px;font-size:14px}
+.row{display:flex;gap:8px;align-items:center}.row>*{flex:1}
+input,textarea{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--tx);font:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.chip{padding:8px 12px;border-radius:20px;border:1px solid var(--line);background:var(--bg);color:var(--mu);font:inherit}
+.chip.on{background:var(--ac);color:#04231a;border-color:var(--ac);font-weight:700}
+.score{display:grid;gap:8px}.p{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-radius:10px;background:var(--bg);border:1px solid var(--line)}
+.p.lead{border-color:var(--ac)}.p b{font-size:22px;font-variant-numeric:tabular-nums}.over{color:var(--bad)}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 4px;text-align:center;border-bottom:1px solid var(--line)}th{color:var(--mu);font-weight:600}
+.mu{color:var(--mu);font-size:14px}.pay{padding:10px 0;border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+.pay:last-child{border:0}.eur{color:var(--ac);font-weight:700}
+.modal{position:fixed;inset:0;background:rgba(5,10,18,.86);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0}
+.pad button,.q button{padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--tx);font:inherit;font-size:20px}
+.q{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.q button{font-size:16px;color:var(--ac)}
+.big{font-size:44px;text-align:center;font-weight:700;margin:6px 0;font-variant-numeric:tabular-nums}
+.x{background:none;border:0;color:var(--mu);font-size:18px;padding:4px 8px}
+</style></head><body><div id="app"></div><div id="m"></div>
+<script>
+const $=s=>document.querySelector(s),pad=n=>String(n).padStart(2,'0');
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const def=()=>({players:[],games:[],cur:null,rate:0.10,limit:300});
+let S;try{S=JSON.parse(localStorage.getItem('solo')||'null')||def()}catch(e){S=def()}
+let tab='game',sel=[],E=null,newOpen=false,dayView=null;
+const save=()=>{try{localStorage.setItem('solo',JSON.stringify(S))}catch(e){}};
+const dayKey=t=>{const d=new Date(t-6*36e5);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+const fmtDay=k=>{const[a,b,c]=k.split('-');return c+'.'+b+'.'+a};
+const eur=n=>n.toFixed(0)+' \u20AC';
+function calc(g){
+ const n=g.players.length,tot={},bal={};
+ g.players.forEach(p=>{tot[p]=0;bal[p]=0});
+ g.rounds.forEach(r=>g.players.forEach(p=>tot[p]+=r.pts[p]||0));
+ const ended=!!g.stopped||(g.rounds.length>0&&Math.max(...Object.values(tot))>=g.limit);
+ const runs=[];
+ g.rounds.forEach(r=>{const l=runs[runs.length-1];if(l&&l.p===r.winner)l.len++;else runs.push({p:r.winner,len:1})});
+ runs.forEach(u=>{if(u.len>=3){const a=u.len-2;g.players.forEach(p=>{if(p!==u.p){bal[p]-=a;bal[u.p]+=a}});u.amt=a}});
+ const order=[...g.players].sort((a,b)=>tot[a]-tot[b]),pays=[];
+ if(ended)for(let i=0;i<Math.floor(n/2);i++){
+  const to=order[i],from=order[n-1-i],amt=Math.round((tot[from]-tot[to])*g.rate);
+  if(amt>0){pays.push({from,to,amt});bal[from]-=amt;bal[to]+=amt}}
+ return{tot,bal,ended,runs,pays,order};
+}
+function settle(bal){
+ const d=[],c=[];
+ Object.entries(bal).forEach(([p,v])=>{if(v<0)d.push([p,-v]);else if(v>0)c.push([p,v])});
+ d.sort((a,b)=>b[1]-a[1]);c.sort((a,b)=>b[1]-a[1]);
+ const out=[];let i=0,j=0;
+ while(i<d.length&&j<c.length){const a=Math.min(d[i][1],c[j][1]);out.push({from:d[i][0],to:c[j][0],amt:a});d[i][1]-=a;c[j][1]-=a;if(!d[i][1])i++;if(!c[j][1])j++}
+ return out;
+}
+const cur=()=>S.games.find(g=>g.id===S.cur);
+function render(){
+ const tabs=[['game','Spiel'],['day','Tagesbilanz'],['stats','Statistik'],['bak','Historie']];
+ $('#app').innerHTML='<nav>'+tabs.map(t=>`<button class="${tab===t[0]?'on':''}" onclick="tab='${t[0]}';render()">${t[1]}</button>`).join('')+'</nav>'+(tab==='game'?vGame():tab==='day'?vDay():tab==='stats'?vStats():vBak());
+}
+function vNew(){
+ const chips=S.players.map(p=>`<button class="chip ${sel.includes(p)?'on':''}" onclick="togP('${esc(p).replace(/'/g,'')}')">${esc(p)}</button>`).join('');
+ return `<div class="card"><h2>\uD83C\uDFB4 Neue Partie</h2><h3>Spieler antippen, mindestens 2</h3>
+ <div class="chips">${chips||'<span class="mu">Noch keine Spieler.</span>'}</div>
+ <div class="row"><input id="np" placeholder="Name hinzufügen"><button class="btn alt sm" style="flex:0 0 auto" onclick="addP()">Hinzufügen</button></div>
+ <div class="row" style="margin:12px 0"><div><h3>Limit</h3><input id="lim" type="number" inputmode="numeric" value="${S.limit}"></div>
+ <div><h3>Cent pro Punkt</h3><input id="rt" type="number" inputmode="numeric" value="${Math.round(S.rate*100)}"></div></div>
+ <button class="btn" onclick="startG()">Partie starten</button></div>`;
+}
+function togP(p){const r=S.players.find(x=>esc(x).replace(/'/g,'')===p)||p;sel=sel.includes(r)?sel.filter(x=>x!==r):[...sel,r];render()}
+function addP(){const v=$('#np').value.trim();if(!v)return;const ex=S.players.find(x=>x.toLowerCase()===v.toLowerCase()),n=ex||v;if(!ex)S.players.push(n);if(!sel.includes(n))sel.push(n);save();render()}
+function startG(){
+ if(sel.length<2){alert('Mindestens 2 Spieler wählen.');return}
+ S.limit=Math.max(1,+$('#lim').value||300);S.rate=Math.max(0,(+$('#rt').value||10))/100;
+ const g={id:Date.now(),ts:Date.now(),players:sel.filter(p=>S.players.includes(p)),limit:S.limit,rate:S.rate,rounds:[]};
+ S.games.push(g);S.cur=g.id;newOpen=false;save();render();
+}
+function vGame(){
+ const g=cur();
+ if(!g||newOpen)return vNew();
+ const c=calc(g),lead=c.order[0],t=g.rounds.length?g.rounds[g.rounds.length-1]:null;
+ let tail=0;if(t){for(let i=g.rounds.length-1;i>=0&&g.rounds[i].winner===t.winner;i--)tail++}
+ const sc=g.players.map(p=>`<div class="p ${g.rounds.length&&p===lead?'lead':''}"><span>${g.rounds.length&&p===lead?'\uD83D\uDC51 ':''}${esc(p)}${t&&t.winner===p&&tail>=2?' \uD83D\uDD25 '+tail+'x':''}</span><b class="${c.tot[p]>=g.limit?'over':''}">${c.tot[p]}</b></div>`).join('');
+ const hist=g.rounds.map((r,i)=>`<tr><td>${i+1}</td>${g.players.map(p=>`<td>${p===r.winner?'\uD83D\uDE0A':(r.pts[p]||0)+((r.pts[p]||0)>=50?' \uD83D\uDCA5':'')}</td>`).join('')}<td><button class="x" onclick="openE(${r.id})">\u270E</button><button class="x" onclick="delR(${r.id})">\u2715</button></td></tr>`).reverse().join('');
+ let end='';
+ if(c.ended){
+  const loser=c.order[c.order.length-1];
+  end=`<div class="card" style="border-color:var(--ac)"><h2>\uD83C\uDFC1 Partie beendet</h2><p class="mu">Sieger: ${esc(lead)} \u00B7 Letzter: ${esc(loser)}</p>`+
+  (c.pays.length?c.pays.map(x=>`<div class="pay"><span>${esc(x.from)} zahlt an ${esc(x.to)}</span><span class="eur">${eur(x.amt)}</span></div>`).join(''):'<p class="mu">Keine Zahlungen aus der Partie.</p>')+
+  (c.runs.filter(u=>u.amt).length?'<h3 style="margin-top:12px">Streak-Boni (von jedem Mitspieler)</h3>'+c.runs.filter(u=>u.amt).map(u=>`<div class="pay"><span>\uD83D\uDD25 ${esc(u.p)}: ${u.len} Siege in Folge</span><span class="eur">${eur(u.amt)}</span></div>`).join(''):'')+
+  `<button class="btn" style="margin-top:12px" onclick="newOpen=true;sel=[...cur().players];render()">Neue Partie</button></div>`;
+ }
+ return `<div class="card"><h2>\uD83C\uDFB4 Aktuelles Spiel <span class="mu">Limit ${g.limit} \u00B7 ${Math.round(g.rate*100)} Cent</span></h2><div class="score">${sc}</div></div>`+end+
+ (c.ended?'':`<button class="btn" onclick="openE(null)">Runde eintragen</button><div style="height:12px"></div>`)+
+ (g.rounds.length?`<div class="card"><h3>Rundenhistorie</h3><div style="overflow-x:auto"><table><tr><th>#</th>${g.players.map(p=>`<th>${esc(p)}</th>`).join('')}<th></th></tr>${hist}</table></div></div>`:'')+
+ `<button class="btn alt" onclick="newOpen=true;sel=[...cur().players];render()">Andere Partie / Spieler ändern</button>`;
+}
+function delR(id){const g=cur();if(confirm('Runde löschen? Alles wird neu berechnet.')){g.rounds=g.rounds.filter(r=>r.id!==id);save();render()}}
+function openE(id){
+ const g=cur(),r=id&&g.rounds.find(x=>x.id===id);
+ E={id,winner:r?r.winner:null,pts:r?{...r.pts}:{},idx:0,buf:''};
+ if(r){E.step='pts';E.idx=0;E.buf=String(E.pts[others()[0]]||'')}else E.step='win';
+ vModal();
+}
+const others=()=>cur().players.filter(p=>p!==E.winner);
+function vModal(){
+ if(!E){$('#m').innerHTML='';return}
+ const g=cur();let h;
+ if(E.step==='win'){
+  h=`<h2>Wer hat die Runde gewonnen?</h2><div class="chips">${g.players.map(p=>`<button class="chip" style="font-size:18px;padding:14px 18px" onclick="pickW('${esc(p).replace(/'/g,'')}')">${esc(p)}</button>`).join('')}</div>`;
+ }else{
+  const o=others(),p=o[E.idx],last=E.idx===o.length-1;
+  h=`<div class="mu">Restpunkte \u00B7 ${E.idx+1} von ${o.length}</div><h2>${esc(p)}</h2><div class="big">${E.buf||0}</div>
+  <div class="q">${[5,10,20,50].map(n=>`<button onclick="addB(${n})">+${n}</button>`).join('')}</div>
+  <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button onclick="dig(${n})">${n}</button>`).join('')}<button onclick="E.buf='';vModal()">C</button><button onclick="dig(0)">0</button><button onclick="E.buf=E.buf.slice(0,-1);vModal()">\u232B</button></div>
+  <button class="btn" onclick="nextP()">${last?'Runde speichern':'Weiter'}</button>`;
+ }
+ $('#m').innerHTML=`<div class="modal" onclick="if(event.target===this){E=null;vModal()}"><div class="sheet">${h}<button class="btn alt" style="margin-top:8px" onclick="E=null;vModal()">Abbrechen</button></div></div>`;
+}
+function pickW(p){const g=cur();E.winner=g.players.find(x=>esc(x).replace(/'/g,'')===p);E.step='pts';E.idx=0;E.buf=String(E.pts[others()[0]]||'');vModal()}
+function dig(n){if(E.buf.length<3)E.buf=(E.buf==='0'?'':E.buf)+n;vModal()}
+function addB(n){E.buf=String((+E.buf||0)+n);vModal()}
+function nextP(){
+ const o=others();E.pts[o[E.idx]]=+E.buf||0;
+ if(E.idx<o.length-1){E.idx++;E.buf=String(E.pts[o[E.idx]]||'');vModal();return}
+ const g=cur(),pts={};o.forEach(p=>pts[p]=E.pts[p]||0);pts[E.winner]=0;
+ if(E.id){const r=g.rounds.find(x=>x.id===E.id);r.winner=E.winner;r.pts=pts}
+ else g.rounds.push({id:Date.now(),winner:E.winner,pts});
+ E=null;save();vModal();render();
+}
+function dayData(k){
+ const gs=S.games.filter(g=>dayKey(g.ts)===k),bal={},rows=[];
+ gs.forEach(g=>{const c=calc(g);g.players.forEach(p=>bal[p]=(bal[p]||0)+c.bal[p]);rows.push({g,c})});
+ return{gs,bal,rows,tx:settle(bal)};
+}
+function vDay(){
+ const days=[...new Set(S.games.map(g=>dayKey(g.ts)))].sort().reverse();
+ if(!days.length)return '<div class="card"><h2>Tagesbilanz</h2><p class="mu">Noch keine Partie gespielt.</p></div>';
+ const k=days.includes(dayView)?dayView:days[0],d=dayData(k);
+ const sw=days.length>1?`<div class="chips">${days.map(x=>`<button class="chip ${x===k?'on':''}" onclick="dayView='${x}';render()">${fmtDay(x)}</button>`).join('')}</div>`:'';
+ const open=d.rows.some(r=>!r.c.ended);
+ return `${sw}<div class="card"><h2>\u2696\uFE0F Spieltag ${fmtDay(k)}</h2><p class="mu">${d.gs.length} Partie(n), Tag läuft 06:00 bis 06:00 Uhr${open?' \u00B7 mindestens eine Partie läuft noch':''}</p>
+ <h3>Wer zahlt an wen (netto)</h3>${d.tx.length?d.tx.map(x=>`<div class="pay"><span>${esc(x.from)} zahlt an ${esc(x.to)}</span><span class="eur">${eur(x.amt)}</span></div>`).join(''):'<p class="mu">Alles ausgeglichen.</p>'}</div>
+ <div class="card"><h3>Kontostand pro Spieler</h3>${Object.entries(d.bal).sort((a,b)=>b[1]-a[1]).map(([p,v])=>`<div class="pay"><span>${esc(p)}</span><span class="${v<0?'over':'eur'}">${v>0?'+':''}${eur(v)}</span></div>`).join('')}</div>
+ <div class="card"><h3>Partien des Tages</h3>${d.rows.map((r,i)=>`<div class="pay"><span>Partie ${i+1} \u00B7 ${r.g.rounds.length} Runden</span><span class="mu">${r.c.ended?'beendet':'läuft'}</span></div>`).join('')}</div>
+ <button class="btn" onclick="cp('${k}')">Ergebnis kopieren</button>`;
+}
+function cp(k){
+ const d=dayData(k);
+ const t='\uD83C\uDFB4 Solo \u2013 Abrechnung '+fmtDay(k)+'\n'+(d.tx.length?d.tx.map(x=>x.from+' zahlt an '+x.to+': '+eur(x.amt)).join('\n'):'Alles ausgeglichen.');
+ (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>alert('Kopiert.')).catch(()=>prompt('Text kopieren:',t));
+}
+function vStats(){
+ const st={},rec={streak:{n:0,p:''},bomb:{n:0,p:''}};
+ S.games.forEach(g=>{const c=calc(g);if(!c.ended||!g.rounds.length)return;
+  g.players.forEach(p=>{const s=st[p]=st[p]||{g:0,w:0,m:0};s.g++;s.m+=c.bal[p]});
+  st[c.order[0]].w++;
+  c.runs.forEach(u=>{if(u.len>rec.streak.n)rec.streak={n:u.len,p:u.p}});
+  g.rounds.forEach(r=>g.players.forEach(p=>{if((r.pts[p]||0)>rec.bomb.n)rec.bomb={n:r.pts[p],p}}))});
+ const rows=Object.entries(st).sort((a,b)=>b[1].m-a[1].m);
+ if(!rows.length)return '<div class="card"><h2>Ewige Statistiken</h2><p class="mu">Noch keine beendete Partie.</p></div>';
+ return `<div class="card"><h2>\uD83D\uDC51 Ewiges Geld-Ranking</h2>${rows.map(([p,s],i)=>`<div class="pay"><span>${i+1}. ${esc(p)}</span><span class="${s.m<0?'over':'eur'}">${s.m>0?'+':''}${eur(s.m)}</span></div>`).join('')}</div>
+ <div class="card"><h2>Winrate</h2><table><tr><th style="text-align:left">Spieler</th><th>Partien</th><th>Siege</th><th>Quote</th></tr>${[...rows].sort((a,b)=>b[1].w/b[1].g-a[1].w/a[1].g).map(([p,s])=>`<tr><td style="text-align:left">${esc(p)}</td><td>${s.g}</td><td>${s.w}</td><td>${Math.round(s.w/s.g*100)}%</td></tr>`).join('')}</table></div>
+ <div class="card"><h2>Rekorde</h2><div class="pay"><span>\uD83D\uDD25 Längster Streak</span><span>${rec.streak.n} Siege \u00B7 ${esc(rec.streak.p)}</span></div><div class="pay"><span>\uD83D\uDCA5 Höchste Punkte-Bombe</span><span>${rec.bomb.n} \u00B7 ${esc(rec.bomb.p)}</span></div></div>`;
+}
+function vGames(){
+ if(!S.games.length)return '';
+ const list=[...S.games].reverse().map(g=>{
+  const c=calc(g),on=g.id===S.cur,st=g.stopped?'vorzeitig beendet':c.ended?'beendet':'läuft',d=new Date(g.ts);
+  const mid=g.stopped?`<button class="chip" onclick="resumeG(${g.id})">Fortsetzen</button>`:(!c.ended?`<button class="chip" onclick="stopG(${g.id})">Vorzeitig beenden</button>`:'');
+  return `<div class="pay" style="display:block"><b>${fmtDay(dayKey(g.ts))} ${pad(d.getHours())}:${pad(d.getMinutes())}</b>${on?' · aktiv':''}<br><span class="mu">${g.players.map(esc).join(', ')} · ${g.rounds.length} Runden · ${st}</span>
+  <div class="chips"><button class="chip" onclick="openG(${g.id})">Öffnen</button><button class="chip" onclick="editG(${g.id})">Limit/Cent</button>${mid}<button class="chip" style="color:var(--bad)" onclick="delG(${g.id})">Löschen</button></div></div>`}).join('');
+ return `<div class="card"><h2>Partien</h2>${list}</div>`;
+}
+function openG(id){S.cur=id;tab='game';newOpen=false;save();render();window.scrollTo(0,0)}
+function editG(id){
+ const g=S.games.find(x=>x.id===id);
+ const l=prompt('Punktelimit',g.limit);if(l===null)return;
+ const r=prompt('Cent pro Punkt',Math.round(g.rate*100));if(r===null)return;
+ const L=+l,R=+r;if(!(L>0)||!(R>=0)){alert('Ungültige Eingabe.');return}
+ g.limit=L;g.rate=R/100;save();render();
+}
+function stopG(id){
+ const g=S.games.find(x=>x.id===id);
+ if(confirm('Partie jetzt beenden? Abgerechnet wird nach dem aktuellen Punktestand.')){g.stopped=true;save();render()}
+}
+function resumeG(id){const g=S.games.find(x=>x.id===id);g.stopped=false;save();render()}
+function delG(id){
+ if(!confirm('Partie endgültig löschen? Tagesbilanz und Statistik werden neu berechnet.'))return;
+ S.games=S.games.filter(x=>x.id!==id);
+ if(S.cur===id)S.cur=S.games.length?S.games[S.games.length-1].id:null;
+ save();render();
+}
+function vBak(){
+ return vGames()+`<div class="card"><h2>Backup</h2><p class="mu">Die Daten liegen nur in diesem Browser. Exportiere nach jedem Spieltag.</p>
+ <button class="btn" onclick="exp()">Daten kopieren (JSON)</button></div>
+ <div class="card"><h3>Wiederherstellen</h3><textarea id="imp" rows="5" placeholder="JSON hier einfügen"></textarea><div style="height:8px"></div><button class="btn alt" onclick="imp()">Importieren</button></div>`;
+}
+function exp(){const t=JSON.stringify(S);(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>alert('JSON kopiert.')).catch(()=>prompt('JSON kopieren:',t))}
+function imp(){try{const o=JSON.parse($('#imp').value);if(!o.games||!o.players)throw 0;if(!confirm('Aktuelle Daten ersetzen?'))return;S=o;save();render()}catch(e){alert('Das JSON ist ungültig.')}}
+render();
+</script></body></html>
